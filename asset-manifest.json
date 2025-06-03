@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/chatroom-for-akim/static/css/main.e6c13ad2.css",
-    "main.js": "/chatroom-for-akim/static/js/main.c1d73fb5.js",
+    "main.js": "/chatroom-for-akim/static/js/main.93c53fb4.js",
     "static/js/453.bdfb0eff.chunk.js": "/chatroom-for-akim/static/js/453.bdfb0eff.chunk.js",
     "index.html": "/chatroom-for-akim/index.html",
     "main.e6c13ad2.css.map": "/chatroom-for-akim/static/css/main.e6c13ad2.css.map",
-    "main.c1d73fb5.js.map": "/chatroom-for-akim/static/js/main.c1d73fb5.js.map",
+    "main.93c53fb4.js.map": "/chatroom-for-akim/static/js/main.93c53fb4.js.map",
     "453.bdfb0eff.chunk.js.map": "/chatroom-for-akim/static/js/453.bdfb0eff.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e6c13ad2.css",
-    "static/js/main.c1d73fb5.js"
+    "static/js/main.93c53fb4.js"
   ]
 }
