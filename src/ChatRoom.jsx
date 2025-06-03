@@ -94,6 +94,21 @@ const ChatRoom = () => {
     }
   };
 
+  // ✅ 測試寫入按鈕的處理函式
+  const testWriteToFirestore = async () => {
+    try {
+      await addDoc(messagesRef, {
+        role: 'user',
+        content: '🔥 這是一則測試訊息 (由測試按鈕產生)',
+        timestamp: serverTimestamp(),
+      });
+      alert('✅ 測試訊息已寫入 Firestore');
+    } catch (error) {
+      console.error('❌ 測試寫入失敗', error);
+      alert('❌ 測試寫入失敗，請查看 console');
+    }
+  };
+
   return (
     <div style={{ maxWidth: 600, margin: 'auto', padding: 20 }}>
       <h2>阿庭與阿金聊天室 🤖</h2>
@@ -156,10 +171,17 @@ const ChatRoom = () => {
           fontSize: 16,
           borderRadius: 5,
           border: '1px solid #ccc',
+          marginBottom: 10,
         }}
       />
+
+      {/* ✅ 加入測試寫入按鈕 */}
+      <button onClick={testWriteToFirestore} style={{ padding: '8px 16px' }}>
+        🔥 點我測試寫入 Firebase
+      </button>
     </div>
   );
 };
 
 export default ChatRoom;
+

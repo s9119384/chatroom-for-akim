@@ -12,8 +12,8 @@ const firebaseConfig = {
   measurementId: "G-NKWEFVPLS5"
 };
 
-// 初始化 Firebase 應用程式
+// 初始化 Firebase App
 const app = initializeApp(firebaseConfig);
 
-// 初始化 Firestore 並導出
+// 初始化 Firestore
 export const db = getFirestore(app);
