@@ -1,19 +1,31 @@
 import React, { useState, useEffect } from 'react';
+import { db } from './firebase';
+import {
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+} from 'firebase/firestore';
 
 const ChatRoom = () => {
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem('chatMessages');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [speaker, setSpeaker] = useState('阿庭');
   const [loading, setLoading] = useState(false);
+  const messagesRef = collection(db, 'messages');
 
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
   useEffect(() => {
-    localStorage.setItem('chatMessages', JSON.stringify(messages));
-  }, [messages]);
+    const q = query(messagesRef, orderBy('timestamp'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedMessages = snapshot.docs.map((doc) => doc.data());
+      setMessages(fetchedMessages);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const shouldTriggerAI = input.includes('AI') || input.includes('助理') || input.includes('@AI');
 
@@ -23,12 +35,12 @@ const ChatRoom = () => {
     const userMessage = {
       role: 'user',
       content: `${speaker}：${input}`,
+      timestamp: serverTimestamp(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    await addDoc(messagesRef, userMessage);
     setInput('');
 
-    // 只有明確叫出 AI 時才回應
     if (!shouldTriggerAI) return;
 
     setLoading(true);
@@ -46,7 +58,9 @@ const ChatRoom = () => {
               {
                 role: 'user',
                 parts: [
-                  { text: '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。' },
+                  {
+                    text: '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。',
+                  },
                 ],
               },
               {
@@ -59,25 +73,22 @@ const ChatRoom = () => {
       );
 
       const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || 'Unknown Gemini API error');
-      }
+      if (data.error) throw new Error(data.error.message || 'Unknown Gemini API error');
 
       const aiMessage = {
         role: 'assistant',
         content: data.candidates?.[0]?.content?.parts?.[0]?.text || '[⚠️ AI 沒有正確回應]',
+        timestamp: serverTimestamp(),
       };
 
-      setMessages(prev => [...prev, aiMessage]);
+      await addDoc(messagesRef, aiMessage);
     } catch (error) {
       console.error('AI Error:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: '⚠️ 無法取得 AI 回應，請稍後再試。',
-        },
-      ]);
+      await addDoc(messagesRef, {
+        role: 'assistant',
+        content: '⚠️ 無法取得 AI 回應，請稍後再試。',
+        timestamp: serverTimestamp(),
+      });
     } finally {
       setLoading(false);
     }
@@ -89,7 +100,7 @@ const ChatRoom = () => {
 
       <div style={{ marginBottom: 10 }}>
         <label>你是誰？</label>{' '}
-        <select value={speaker} onChange={e => setSpeaker(e.target.value)}>
+        <select value={speaker} onChange={(e) => setSpeaker(e.target.value)}>
           <option value="阿庭">阿庭</option>
           <option value="阿金">阿金</option>
         </select>
@@ -133,8 +144,8 @@ const ChatRoom = () => {
       <input
         type="text"
         value={input}
-        onChange={e => setInput(e.target.value)}
-        onKeyDown={e => {
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
           if (e.key === 'Enter') sendMessage();
         }}
         placeholder={`以 ${speaker} 的身分說點什麼`}
