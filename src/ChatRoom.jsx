@@ -23,6 +23,7 @@ const ChatRoom = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map((doc) => doc.data());
       setMessages(fetchedMessages);
+
       setTimeout(() => {
         if (scrollRef.current) {
           scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -30,7 +31,21 @@ const ChatRoom = () => {
       }, 100);
     });
     return () => unsubscribe();
-  }, []);
+  }, [messagesRef]);
+
+  // 格式化時間函式，根據 timestamp 轉換成字串
+  const formatTimestamp = (timestamp) => {
+    if (!timestamp) return '';
+    // Firestore 的 timestamp 物件有 toDate() 方法
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const Y = date.getFullYear();
+    const M = String(date.getMonth() + 1).padStart(2, '0');
+    const D = String(date.getDate()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+    return `${Y}/${M}/${D} ${h}:${m}:${s}`;
+  };
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -61,7 +76,6 @@ const ChatRoom = () => {
     setLoading(true);
 
     try {
-      // 取最新訊息（含剛發送的）
       const q = query(messagesRef, orderBy('timestamp'));
       const snapshot = await new Promise((resolve) => {
         const unsubscribe = onSnapshot(q, (snap) => {
@@ -183,7 +197,7 @@ const ChatRoom = () => {
               key={idx}
               style={{
                 textAlign: isMine ? 'right' : 'left',
-                marginBottom: 8,
+                marginBottom: 12,
               }}
             >
               <span
@@ -201,6 +215,17 @@ const ChatRoom = () => {
               >
                 {msg.content}
               </span>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#555',
+                  marginTop: 4,
+                  textAlign: isMine ? 'right' : 'left',
+                  userSelect: 'none',
+                }}
+              >
+                {formatTimestamp(msg.timestamp)}
+              </div>
             </div>
           );
         })}
@@ -257,7 +282,7 @@ const ChatRoom = () => {
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2196f3')}
         >
-          普通發送
+          送出訊息
         </button>
         <button
           onClick={sendMessageToAI}
@@ -278,7 +303,7 @@ const ChatRoom = () => {
           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9a825')}
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#fbc02d')}
         >
-          發送給 AI
+          送出給 AI
         </button>
       </div>
     </div>
