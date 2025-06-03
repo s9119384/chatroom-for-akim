@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from './firebase';
 import {
   collection,
@@ -15,60 +15,85 @@ const ChatRoom = () => {
   const [speaker, setSpeaker] = useState('阿庭');
   const [loading, setLoading] = useState(false);
   const messagesRef = collection(db, 'messages');
-
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     const q = query(messagesRef, orderBy('timestamp'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map((doc) => doc.data());
       setMessages(fetchedMessages);
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 100);
     });
     return () => unsubscribe();
   }, []);
-
-  const shouldTriggerAI = input.includes('AI') || input.includes('助理') || input.includes('@AI');
 
   const sendMessage = async () => {
     if (!input.trim()) return;
 
     const userMessage = {
       role: 'user',
+      speaker,
       content: `${speaker}：${input}`,
       timestamp: serverTimestamp(),
     };
 
     await addDoc(messagesRef, userMessage);
     setInput('');
+  };
 
-    if (!shouldTriggerAI) return;
+  const sendMessageToAI = async () => {
+    if (!input.trim()) return;
 
+    const userMessage = {
+      role: 'user',
+      speaker,
+      content: `${speaker}：${input}`,
+      timestamp: serverTimestamp(),
+    };
+
+    await addDoc(messagesRef, userMessage);
+    setInput('');
     setLoading(true);
 
     try {
+      // 取最新訊息（含剛發送的）
+      const q = query(messagesRef, orderBy('timestamp'));
+      const snapshot = await new Promise((resolve) => {
+        const unsubscribe = onSnapshot(q, (snap) => {
+          unsubscribe();
+          resolve(snap);
+        });
+      });
+      const allMessages = snapshot.docs.map((doc) => doc.data());
+      const lastFifty = allMessages.slice(-50);
+
+      const contents = [
+        {
+          role: 'user',
+          parts: [
+            {
+              text:
+                '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。',
+            },
+          ],
+        },
+        ...lastFifty.map((msg) => ({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          parts: [{ text: msg.content }],
+        })),
+      ];
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    text: '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。',
-                  },
-                ],
-              },
-              {
-                role: 'user',
-                parts: [{ text: `${speaker}：${input}` }],
-              },
-            ],
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents }),
         }
       );
 
@@ -77,6 +102,7 @@ const ChatRoom = () => {
 
       const aiMessage = {
         role: 'assistant',
+        speaker: 'AI',
         content: data.candidates?.[0]?.content?.parts?.[0]?.text || '[⚠️ AI 沒有正確回應]',
         timestamp: serverTimestamp(),
       };
@@ -86,6 +112,7 @@ const ChatRoom = () => {
       console.error('AI Error:', error);
       await addDoc(messagesRef, {
         role: 'assistant',
+        speaker: 'AI',
         content: '⚠️ 無法取得 AI 回應，請稍後再試。',
         timestamp: serverTimestamp(),
       });
@@ -94,34 +121,40 @@ const ChatRoom = () => {
     }
   };
 
-  // ✅ 測試寫入按鈕的處理函式
-  const testWriteToFirestore = async () => {
-    try {
-      await addDoc(messagesRef, {
-        role: 'user',
-        content: '🔥 這是一則測試訊息 (由測試按鈕產生)',
-        timestamp: serverTimestamp(),
-      });
-      alert('✅ 測試訊息已寫入 Firestore');
-    } catch (error) {
-      console.error('❌ 測試寫入失敗', error);
-      alert('❌ 測試寫入失敗，請查看 console');
-    }
-  };
-
   return (
-    <div style={{ maxWidth: 600, margin: 'auto', padding: 20 }}>
-      <h2>阿庭與阿金聊天室 🤖</h2>
+    <div
+      style={{
+        maxWidth: 600,
+        margin: 'auto',
+        padding: 20,
+        backgroundColor: '#6b6a6a',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <h2 style={{ color: 'white', textAlign: 'center' }}>阿庭與阿金聊天室 🤖</h2>
 
       <div style={{ marginBottom: 10 }}>
-        <label>你是誰？</label>{' '}
-        <select value={speaker} onChange={(e) => setSpeaker(e.target.value)}>
+        <label style={{ color: 'white', marginRight: 8, fontWeight: 'bold' }}>你是誰？</label>
+        <select
+          value={speaker}
+          onChange={(e) => setSpeaker(e.target.value)}
+          style={{
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: 'none',
+            fontSize: 16,
+            backgroundColor: '#eeeeee',
+          }}
+        >
           <option value="阿庭">阿庭</option>
           <option value="阿金">阿金</option>
         </select>
       </div>
 
       <div
+        ref={scrollRef}
         style={{
           border: '1px solid #ccc',
           borderRadius: 8,
@@ -129,31 +162,60 @@ const ChatRoom = () => {
           height: 300,
           overflowY: 'auto',
           marginBottom: 10,
+          backgroundColor: '#b0b0b0',
+          flexGrow: 1,
         }}
       >
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            style={{
-              textAlign: msg.role === 'user' ? 'right' : 'left',
-              marginBottom: 8,
-            }}
-          >
-            <span
+        {messages.map((msg, idx) => {
+          const isMine = msg.speaker === speaker;
+          let bgColor = '#f1f1f1';
+
+          if (msg.role === 'assistant') {
+            bgColor = '#fff59d'; // AI 黃
+          } else if (msg.speaker === '阿庭') {
+            bgColor = '#90caf9'; // 阿庭藍
+          } else if (msg.speaker === '阿金') {
+            bgColor = '#a5d6a7'; // 阿金綠
+          }
+
+          return (
+            <div
+              key={idx}
               style={{
-                backgroundColor: msg.role === 'user' ? '#cce5ff' : '#f1f1f1',
-                padding: 8,
-                borderRadius: 5,
-                display: 'inline-block',
-                maxWidth: '80%',
-                whiteSpace: 'pre-wrap',
+                textAlign: isMine ? 'right' : 'left',
+                marginBottom: 8,
               }}
             >
-              {msg.content}
-            </span>
+              <span
+                style={{
+                  backgroundColor: bgColor,
+                  color: 'black',
+                  padding: 8,
+                  borderRadius: 12,
+                  display: 'inline-block',
+                  maxWidth: '80%',
+                  whiteSpace: 'pre-wrap',
+                  fontSize: 16,
+                  lineHeight: 1.4,
+                }}
+              >
+                {msg.content}
+              </span>
+            </div>
+          );
+        })}
+        {loading && (
+          <div
+            style={{
+              textAlign: 'center',
+              marginTop: 10,
+              fontWeight: 'bold',
+              color: 'black',
+            }}
+          >
+            AI 正在回應中...
           </div>
-        ))}
-        {loading && <div>AI 正在回應中...</div>}
+        )}
       </div>
 
       <input
@@ -169,19 +231,58 @@ const ChatRoom = () => {
           width: '100%',
           padding: 10,
           fontSize: 16,
-          borderRadius: 5,
+          borderRadius: 8,
           border: '1px solid #ccc',
           marginBottom: 10,
         }}
       />
 
-      {/* ✅ 加入測試寫入按鈕 */}
-      <button onClick={testWriteToFirestore} style={{ padding: '8px 16px' }}>
-        🔥 點我測試寫入 Firebase
-      </button>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={sendMessage}
+          disabled={loading}
+          style={{
+            flex: 1,
+            backgroundColor: '#2196f3',
+            color: 'white',
+            fontSize: 18,
+            padding: '12px 0',
+            border: 'none',
+            borderRadius: 25,
+            cursor: 'pointer',
+            userSelect: 'none',
+            boxShadow: '0 3px 6px rgba(33, 150, 243, 0.4)',
+            transition: 'background-color 0.3s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2196f3')}
+        >
+          普通發送
+        </button>
+        <button
+          onClick={sendMessageToAI}
+          disabled={loading}
+          style={{
+            flex: 1,
+            backgroundColor: '#fbc02d',
+            color: 'black',
+            fontSize: 18,
+            padding: '12px 0',
+            border: 'none',
+            borderRadius: 25,
+            cursor: 'pointer',
+            userSelect: 'none',
+            boxShadow: '0 3px 6px rgba(251, 192, 45, 0.4)',
+            transition: 'background-color 0.3s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9a825')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#fbc02d')}
+        >
+          發送給 AI
+        </button>
+      </div>
     </div>
   );
 };
 
 export default ChatRoom;
-
