@@ -1,3 +1,4 @@
+// ChatRoom.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from './firebase';
 import {
@@ -14,29 +15,40 @@ const ChatRoom = () => {
   const [input, setInput] = useState('');
   const [speaker, setSpeaker] = useState('阿庭');
   const [loading, setLoading] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const messagesRef = collection(db, 'messages');
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   const scrollRef = useRef(null);
+
+  const cloudName = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
+  const uploadPreset = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
 
   useEffect(() => {
     const q = query(messagesRef, orderBy('timestamp'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMessages = snapshot.docs.map((doc) => doc.data());
       setMessages(fetchedMessages);
-
-      setTimeout(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-      }, 100);
     });
     return () => unsubscribe();
-  }, [messagesRef]);
+  }, []);
 
-  // 格式化時間函式，根據 timestamp 轉換成字串
+  useEffect(() => {
+    const el = scrollRef.current;
+    const handleScroll = () => {
+      const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 20;
+      setShowScrollButton(!isAtBottom);
+    };
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToBottom = () => {
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    setShowScrollButton(false);
+  };
+
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return '';
-    // Firestore 的 timestamp 物件有 toDate() 方法
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     const Y = date.getFullYear();
     const M = String(date.getMonth() + 1).padStart(2, '0');
@@ -53,7 +65,7 @@ const ChatRoom = () => {
     const userMessage = {
       role: 'user',
       speaker,
-      content: `${speaker}：${input}`,
+      content: input.trim(),
       timestamp: serverTimestamp(),
     };
 
@@ -67,7 +79,7 @@ const ChatRoom = () => {
     const userMessage = {
       role: 'user',
       speaker,
-      content: `${speaker}：${input}`,
+      content: input.trim(),
       timestamp: serverTimestamp(),
     };
 
@@ -83,22 +95,22 @@ const ChatRoom = () => {
           resolve(snap);
         });
       });
+
       const allMessages = snapshot.docs.map((doc) => doc.data());
-      const lastFifty = allMessages.slice(-50);
+      const lastHundred = allMessages.slice(-100);
 
       const contents = [
         {
           role: 'user',
           parts: [
             {
-              text:
-                '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。',
+              text: '你是一個聊天室助手，能辨識並回應對話中的不同角色。角色包括阿庭和阿金，請根據上下文回應對話。',
             },
           ],
         },
-        ...lastFifty.map((msg) => ({
+        ...lastHundred.map((msg) => ({
           role: msg.role === 'user' ? 'user' : 'assistant',
-          parts: [{ text: msg.content }],
+          parts: [{ text: msg.content }], // 取消前綴，只留純內容
         })),
       ];
 
@@ -135,6 +147,40 @@ const ChatRoom = () => {
     }
   };
 
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', uploadPreset);
+
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+
+      await addDoc(messagesRef, {
+        role: 'user',
+        speaker,
+        content: '',
+        imageUrl: data.secure_url,
+        timestamp: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('圖片上傳錯誤:', error);
+      alert('圖片上傳失敗，請稍後再試。');
+    } finally {
+      setLoading(false);
+      e.target.value = null;
+    }
+  };
+
   return (
     <div
       style={{
@@ -150,7 +196,11 @@ const ChatRoom = () => {
       <h2 style={{ color: 'white', textAlign: 'center' }}>阿庭與阿金聊天室 🤖</h2>
 
       <div style={{ marginBottom: 10 }}>
-        <label style={{ color: 'white', marginRight: 8, fontWeight: 'bold' }}>你是誰？</label>
+        <label
+          style={{ color: 'white', marginRight: 8, fontWeight: 'bold' }}
+        >
+          你是誰？
+        </label>
         <select
           value={speaker}
           onChange={(e) => setSpeaker(e.target.value)}
@@ -170,6 +220,7 @@ const ChatRoom = () => {
       <div
         ref={scrollRef}
         style={{
+          position: 'relative',
           border: '1px solid #ccc',
           borderRadius: 8,
           padding: 10,
@@ -182,24 +233,31 @@ const ChatRoom = () => {
       >
         {messages.map((msg, idx) => {
           const isMine = msg.speaker === speaker;
+          const isAI = msg.role === 'assistant';
           let bgColor = '#f1f1f1';
+          if (isAI) bgColor = '#fff59d';
+          else if (msg.speaker === '阿庭') bgColor = '#90caf9';
+          else if (msg.speaker === '阿金') bgColor = '#a5d6a7';
 
-          if (msg.role === 'assistant') {
-            bgColor = '#fff59d'; // AI 黃
-          } else if (msg.speaker === '阿庭') {
-            bgColor = '#90caf9'; // 阿庭藍
-          } else if (msg.speaker === '阿金') {
-            bgColor = '#a5d6a7'; // 阿金綠
-          }
+          const showSpeaker = isAI || (!isMine && msg.speaker);
 
           return (
             <div
               key={idx}
-              style={{
-                textAlign: isMine ? 'right' : 'left',
-                marginBottom: 12,
-              }}
+              style={{ textAlign: isMine ? 'right' : 'left', marginBottom: 14 }}
             >
+              {showSpeaker && (
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 'bold',
+                    color: '#333',
+                    marginBottom: 2,
+                  }}
+                >
+                  {msg.speaker}
+                </div>
+              )}
               <span
                 style={{
                   backgroundColor: bgColor,
@@ -214,6 +272,17 @@ const ChatRoom = () => {
                 }}
               >
                 {msg.content}
+                {msg.imageUrl && (
+                  <div style={{ marginTop: 8 }}>
+                    <a href={msg.imageUrl} target="_blank" rel="noreferrer">
+                      <img
+                        src={msg.imageUrl}
+                        alt="uploaded"
+                        style={{ maxWidth: '100%', borderRadius: 12, cursor: 'pointer' }}
+                      />
+                    </a>
+                  </div>
+                )}
               </span>
               <div
                 style={{
@@ -243,6 +312,24 @@ const ChatRoom = () => {
         )}
       </div>
 
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          style={{
+            alignSelf: 'center',
+            marginBottom: 10,
+            padding: '6px 12px',
+            borderRadius: 20,
+            backgroundColor: '#333',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          ⬇ 查看最新訊息
+        </button>
+      )}
+
       <input
         type="text"
         value={input}
@@ -262,52 +349,56 @@ const ChatRoom = () => {
         }}
       />
 
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button
           onClick={sendMessage}
           disabled={loading}
-          style={{
-            flex: 1,
-            backgroundColor: '#2196f3',
-            color: 'white',
-            fontSize: 18,
-            padding: '12px 0',
-            border: 'none',
-            borderRadius: 25,
-            cursor: 'pointer',
-            userSelect: 'none',
-            boxShadow: '0 3px 6px rgba(33, 150, 243, 0.4)',
-            transition: 'background-color 0.3s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1976d2')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#2196f3')}
+          style={btnStyle('#2196f3', '#1976d2')}
         >
           送出訊息
         </button>
         <button
           onClick={sendMessageToAI}
           disabled={loading}
-          style={{
-            flex: 1,
-            backgroundColor: '#fbc02d',
-            color: 'black',
-            fontSize: 18,
-            padding: '12px 0',
-            border: 'none',
-            borderRadius: 25,
-            cursor: 'pointer',
-            userSelect: 'none',
-            boxShadow: '0 3px 6px rgba(251, 192, 45, 0.4)',
-            transition: 'background-color 0.3s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9a825')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#fbc02d')}
+          style={btnStyle('#fbc02d', '#f9a825', true)}
         >
-          送出給 AI
+          送給 AI
         </button>
+        <label
+          htmlFor="imageUpload"
+          style={btnStyle('#4caf50', '#388e3c', false, true)}
+        >
+          📷
+          <input
+            type="file"
+            id="imageUpload"
+            accept="image/*"
+            onChange={handleImageUpload}
+            disabled={loading}
+            style={{ display: 'none' }}
+          />
+        </label>
       </div>
     </div>
   );
 };
+
+const btnStyle = (bg, hover, blackText = false, circle = false) => ({
+  flex: circle ? undefined : 1,
+  backgroundColor: bg,
+  color: blackText ? 'black' : 'white',
+  padding: circle ? 10 : '10px 0',
+  borderRadius: circle ? '50%' : 8,
+  border: 'none',
+  fontSize: 16,
+  cursor: 'pointer',
+  userSelect: 'none',
+  display: 'inline-flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  transition: 'background-color 0.3s ease',
+  ...(circle ? { width: 42, height: 42 } : {}),
+  ':hover': { backgroundColor: hover },
+});
 
 export default ChatRoom;
